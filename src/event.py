@@ -21,6 +21,11 @@ class Event(object):
 
 class Date(object):
 
+    day = ""
+    start_time = ""
+    end_time = ""
+    ct_st = ""
+
     def __init__(self):
         pass
 
