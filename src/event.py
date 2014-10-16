@@ -25,6 +25,7 @@ class Date(object):
     start_time = ""
     end_time = ""
     ct_st = ""
+    repetition = ""
 
     def __init__(self):
         pass

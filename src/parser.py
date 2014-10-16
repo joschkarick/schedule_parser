@@ -20,9 +20,7 @@ def parse_site(url):
     event_type_re = re.compile(r'([a-zA-ZöÖäÄüÜ]+[a-zA-ZöÖäÄüÜ ]+)\s')
     weekly_hours_re = re.compile(r'([0-9]{1,2}\.[0-9] SWS)\s')
     docent_re = re.compile(r'(\s[^;^:]*) ')
-    date_dates_re = re.compile(r'Termin: |Termine: ')
-    day_re = re.compile(r'((Mo|Di|Mi|Do|Fr|Sa|So) ([0-9]{1,2}(:[0-9]{1,2})?) '
-                        r'(\([cs]\.t\.\) )?- ([0-9]{1,2}(:[0-9]{1,2})?))|-')
+    day_re = re.compile(r'(([0-9]{1,2}(:[0-9]{1,2})?) (\([cs]\.t\.\))? ?- ([0-9]{1,2}(:[0-9]{1,2})?)|-) (wöch|woch|-)?')
 
 
     events = []
@@ -54,38 +52,45 @@ def parse_site(url):
         for row in d:
             e.docents.append(Docent(row))
 
-        # Parse dates
+        # Parse each date
         date_rows = items[x+1].findAll('tr')
         for date_row in xrange(2, len(date_rows), 3):
             d = Date()
-            tmp = strip_re.sub(' ', date_rows[date_row].getText())
 
-            tmp2 = date_dates_re.search(tmp).group(0)
-            tmp = tmp[len(tmp2)+1:]
+            # Get all columns from the event date
+            entries = date_rows[date_row].findAll('td')
 
-            tmp2 = day_re.search(tmp).groups()
-            d.day = tmp2[1]
-            d.start_time = tmp2[2]
-            d.ct_st = tmp2[4]
-            d.end_time = tmp2[5]
+            # Parse each cell
+            tmp = strip_re.sub(' ', entries[1].getText().replace(u'\xa0', ' '))
+            d.day = tmp.strip()
+
+            tmp = strip_re.sub(' ', entries[2].getText().replace(u'\xa0', ' '))
+            tmp = day_re.search(tmp.strip())
+            d.start_time = tmp.group(2)
+            d.end_time = tmp.group(5)
+            d.ct_st = tmp.group(4)
+            d.repetition = tmp.group(7)
+
+            tmp = strip_re.sub(' ', entries[3].getText().replace(u'\xa0', ' '))
+            print tmp.strip()
 
             e.dates.append(d)
 
         events.append(e)
 
-    for event in events:
-        print "------------------------------------------------------------------------------------------------------"
-        print event.name
-        print event.number
-        print event.semester
-        print event.weekly_hours
-        print event.event_type
-        print "Dozenten:"
-        for docent in event.docents:
-            print "\t", docent.name
-        print "Dates:"
-        for date in event.dates:
-            print "\t", date.day, date.start_time, date.ct_st, " - ", date.end_time
+    # for event in events:
+    #     print "------------------------------------------------------------------------------------------------------"
+    #     print event.name
+    #     print event.number
+    #     print event.semester
+    #     print event.weekly_hours
+    #     print event.event_type
+    #     print "Dozenten:"
+    #     for docent in event.docents:
+    #         print "\t", docent.name
+    #     print "Dates:"
+    #     for date in event.dates:
+    #         print "\t", date.day, date.start_time, date.ct_st, "-", date.end_time, date.repetition
     pass
 
 url = "https://basis.uni-bonn.de/qisserver/rds?state=wtree" \
