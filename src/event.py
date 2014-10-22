@@ -24,21 +24,29 @@ class Date(object):
     day = ""
     start_time = ""
     end_time = ""
+    start_date = ""
+    end_date = ""
     ct_st = ""
     repetition = ""
+    room = ""
+    teachers = None
+    info = ""
 
     def __init__(self):
+        self.teachers = []
         pass
 
     pass
 
 
-class Docent(object):
+class Person(object):
 
     name = ""
+    type = ""
 
-    def __init__(self, name=""):
+    def __init__(self, name="", type=""):
         self.name = name
+        self.type = type
         pass
 
     pass
