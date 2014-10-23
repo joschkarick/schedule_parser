@@ -1,12 +1,18 @@
 #!/usr/bin/python
 # -*- coding: latin-1 -*-
 
-__author__ = 'JOSCH'
+__author__ = 'Joschka Rick'
 
 from event import *
+import datetime
 import re
 import urllib2
 from bs4 import BeautifulSoup
+from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 strip_re = re.compile(r'([\s]+)\s')
@@ -15,11 +21,18 @@ number_re = re.compile(r'([0-9]{1,9}|\(Keine\sNummer\))\s')
 event_type_re = re.compile(r'([a-zA-ZöÖäÄüÜ]+[a-zA-ZöÖäÄüÜ ]+)\s?')
 weekly_hours_re = re.compile(r'([0-9]{1,2}\.[0-9] SWS)\s')
 person_re = re.compile(r'(\s[^;^:]*) ')
-day_re = re.compile(r'(([0-9]{1,2}(:[0-9]{1,2})?|-) (\([cs]\.t\.\))? ?- ([0-9]{1,2}(:[0-9]{1,2})?|-)|-)'
+day_re = re.compile(r'((([0-9]{1,2})(:([0-9]{1,2}))?|-) (\([cs]\.t\.\))? ?- (([0-9]{1,2})(:([0-9]{1,2}))?|-)|-)'
                     r' ?(wöch|woch|Block|täglich|Einzel)?')
 date_span_re = re.compile(r'(\d{2}\.\d{2}\.\d{4}|-) ?(bis|-) ?(\d{2}\.\d{2}\.\d{4}|-)')
 
 visited_sites = []
+
+engine = initiate_db()
+
+DBSession = sessionmaker(bind=engine)
+session = DBSession()
+
+PARSE_SUBPAGES = False
 
 
 def parse_site(url):
@@ -27,15 +40,13 @@ def parse_site(url):
 
     subpages = soup.find_all('a', {"class": "ueb", "title": re.compile(r'.* öffnen')})
 
-    for subpage in subpages:
-        subpage_url = subpage['href']
-        page_title = subpage['title']
-        if not subpage_url in visited_sites:
-            print "Added", page_title
-            visited_sites.append(subpage_url)
-            parse_site(subpage_url)
-
-    return
+    if PARSE_SUBPAGES:
+        for subpage in subpages:
+            subpage_url = subpage['href']
+            page_title = subpage['title']
+            if not subpage_url in visited_sites:
+                visited_sites.append(subpage_url)
+                #parse_site(subpage_url)
 
     tmp = soup.find('td', {"class": "maske"})
     if not tmp:
@@ -90,11 +101,15 @@ def parse_site(url):
 
             # Parse each cell
             tmp = strip_re.sub(' ', entries[1].getText().replace(u'\xa0', ' '))
-            d.day = tmp.strip()
+            d.day = Day.from_string("Do")
 
             tmp = strip_re.sub(' ', entries[2].getText().replace(u'\xa0', ' '))
             tmp = day_re.search(tmp.strip())
-            d.start_time = tmp.group(2)
+            if tmp.group(3) and tmp.group(5):
+                d.start_time = datetime.time(hour=int(tmp.group(3)), minute=int(tmp.group(5)))
+            else:
+                d.start_time = datetime.time()
+
             d.end_time = tmp.group(5)
             d.ct_st = tmp.group(4)
             d.repetition = tmp.group(7)
@@ -118,34 +133,40 @@ def parse_site(url):
 
             e.dates.append(d)
 
+        session.add_all(e.dates)
         events.append(e)
 
-    # for event in events:
-    #     print "------------------------------------------------------------------------------------------------------"
-    #     print event.name
-    #     print event.number
-    #     print event.semester
-    #     print event.weekly_hours
-    #     print event.event_type
-    #     print "Dozenten:"
-    #     for docent in event.docents:
-    #         print "\t", docent.name
-    #     if len(e.dates) > 0:
-    #         print "Dates:"
-    #         for date in event.dates:
-    #             print "\t", date.day
-    #             print "\t\t", date.start_time, date.ct_st, "-", date.end_time, date.repetition
-    #             print "\t\t", date.start_date, "-", date.end_date
-    #             print "\t\t", date.info
-    #             if len(date.teachers) > 0:
-    #                 print "\t\t", "Teachers:"
-    #                 for teacher in date.teachers:
-    #                     print "\t\t\t", teacher.name
-    pass
+    #session.add_all(events)
+    session.commit()
 
+    for event in events:
+        print "------------------------------------------------------------------------------------------------------"
+        print event.name
+        print event.number
+        print event.semester
+        print event.weekly_hours
+        print event.event_type
+        print "Dozenten:"
+        for docent in event.docents:
+            print "\t", docent.name
+        if len(e.dates) > 0:
+            print "Dates:"
+            for date in event.dates:
+                print "\t", date.day
+                print "\t\t", date.start_time, date.ct_st, "-", date.end_time, date.repetition
+                print "\t\t", date.start_date, "-", date.end_date
+                print "\t\t", date.info
+                if len(date.teachers) > 0:
+                    print "\t\t", "Teachers:"
+                    for teacher in date.teachers:
+                        print "\t\t\t", teacher.name
+    pass
 
 main = "https://basis.uni-bonn.de/qisserver/rds;jsessionid=7C21B64E2DD0ADAE6A8A267B99FC718D" \
        "?state=wtree&search=1&trex=step&root120142=108307&P.vx=lang"
 
-parse_site(main)
-print visited_sites
+site1 = "https://basis.uni-bonn.de/qisserver/rds" \
+        "?state=wtree&search=1&trex=step&root120142=108307|116100|116093|116108&P.vx=lang"
+
+parse_site(site1)
+
