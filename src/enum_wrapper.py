@@ -1,4 +1,4 @@
-__author__ = 'JOSCH'
+__author__ = 'Mike Bayer'
 
 
 from sqlalchemy.types import SchemaType, TypeDecorator, Enum
