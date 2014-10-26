@@ -8,10 +8,6 @@ import datetime
 import re
 import urllib2
 from bs4 import BeautifulSoup
-from sqlalchemy import Column, ForeignKey, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 
