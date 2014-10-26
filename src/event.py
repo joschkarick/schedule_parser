@@ -2,8 +2,7 @@ __author__ = 'Joschka Rick'
 
 
 from enum_wrapper import DeclEnum
-from sqlalchemy import Enum
-from sqlalchemy import Column, ForeignKey, Integer, String, Date, Time
+from sqlalchemy import Column, ForeignKey, Integer, String, Date, Time, Table
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy import create_engine
@@ -11,12 +10,25 @@ from sqlalchemy import create_engine
 Base = declarative_base()
 
 
+event_person_association = Table('event_person_association', Base.metadata,
+                                 Column('event_id', Integer, ForeignKey('event.id')),
+                                 Column('person_id', Integer, ForeignKey('person.id')))
+
+date_person_association = Table('date_person_association', Base.metadata,
+                                Column('date_id', Integer, ForeignKey('date.id')),
+                                Column('person_id', Integer, ForeignKey('person.id')))
+
+event_date_association = Table('event_date_association', Base.metadata,
+                               Column('event_id', Integer, ForeignKey('event.id')),
+                               Column('date_id', Integer, ForeignKey('date.id')))
+
+
 class Day(DeclEnum):
-    montag = "Mo", "Montag"
-    dienstag = "Di", "Dienstag"
-    mittwoch = "Mi", "Mittwoch"
-    donnerstag = "Do", "Donnerstag"
-    freitag = "Fr", "Freitag"
+    monday = "Mo", "Montag"
+    tuesday = "Di", "Dienstag"
+    wednesday = "Mi", "Mittwoch"
+    thursday = "Do", "Donnerstag"
+    friday = "Fr", "Freitag"
     samstag = "Sa", "Samstag"
     sonntag = "So", "Sonntag"
     unknown = "-", "Unknown"
@@ -32,33 +44,35 @@ class Event(Base):
     event_type = Column(String(100), nullable=True)
     weekly_hours = Column(Integer, nullable=True)
 
-    docents = None
-    dates = None
+    docents = relationship('Person',
+                           secondary=event_person_association,
+                           backref='events')
+
+    dates = relationship('Date',
+                         secondary=event_date_association)
 
     def __init__(self):
-        self.docents = []
-        self.dates = []
         pass
 
     pass
 
 
 class Date(Base):
-    __tablename__ = 'event_date'
+    __tablename__ = 'date'
 
     id = Column(Integer, primary_key=True)
-    #day = Column(Enum("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So", name='day_enum'), nullable=True)
     day = Column(Day.db_type(), nullable=True)
-    start_time = Column(Time, nullable=True)
+    start_time = Column(Time, nullable=False)
+    end_time = Column(Time, nullable=False)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    ct_st = Column(String(10), nullable=True)
+    repetition = Column(String(10), nullable=True)
+    room = Column(String(50), nullable=True)
+    info = Column(String(250), nullable=True)
 
-    end_time = ""
-    start_date = ""
-    end_date = ""
-    ct_st = ""
-    repetition = ""
-    room = ""
-    teachers = None
-    info = ""
+    teachers = relationship('Person',
+                            secondary=date_person_association)
 
     def __init__(self):
         self.teachers = []
@@ -67,20 +81,16 @@ class Date(Base):
     pass
 
 
-class Person(object):
+class Person(Base):
+    __tablename__ = 'person'
 
-    name = ""
-    type = ""
-
-    def __init__(self, name="", role=""):
-        self.name = name
-        self.type = role
-        pass
-
-    pass
-
-
-class Room(object):
+    id = Column(Integer, primary_key=True, nullable=False)
+    basis_pid = Column(Integer, nullable=False)
+    last_name = Column(String(50), nullable=True)
+    first_name = Column(String(50), nullable=True)
+    sex = Column(String(10), nullable=True)
+    academic_degree = Column(String(50), nullable=True)
+    status = Column(String(50), nullable=True)
 
     def __init__(self):
         pass
