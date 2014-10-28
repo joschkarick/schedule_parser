@@ -10,8 +10,15 @@ import urllib2
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import sessionmaker
 
+
+class ProcessingOrder(DeclEnum):
+    breadth_first = 'bf', 'Breadth First'
+    depth_first = 'df', 'Depth First'
+
+
 # True if subpages should be parsed
-PARSE_SUBPAGES = False
+PARSE_SUBPAGES = True
+ROOT_PAGE = "https://basis.uni-bonn.de/qisserver/rds?state=wtree&search=1&trex=step&root120142=108307&P.vx=lang"
 
 # TODO: Review time_re and add unicode symbols
 strip_re = re.compile(r'([\s]+)\s')
@@ -21,13 +28,19 @@ event_type_re = re.compile(r'([a-zA-ZöÖäÄüÜ]+[a-zA-ZöÖäÄüÜ ]+)\s?')
 weekly_hours_re = re.compile(r'([0-9]{1,2}\.[0-9] SWS)\s')
 person_re = re.compile(r'(\s[^;^:]*)\s')
 time_re = re.compile(r'(((([0-9]{1,2})(:([0-9]{1,2}))?) ?(\([cs]\.t\.\))? - (([0-9]{1,2})(:([0-9]{1,2}))?))|-)'
-                     r' ?(wöch|woch|Block|täglich|Einzel|-)')
+                     r' ?(wöch|woch|Block|täglich|Einzel|nach Absprache|-)')
 date_span_re = re.compile(r'((\d{2})\.(\d{2})\.(\d{4})|-) ?(bis|-) ?((\d{2})\.(\d{2})\.(\d{4})|-)')
 pid_re = re.compile(r'&personal\.pid=([0-9]+)')
 page_depth_re = re.compile(r'&root[^=]*=([^&]*)')
 
+# The order of processing
+subpage_processing_order = ProcessingOrder.depth_first
+
+# List of known but unvisited websites
+unvisited_sites = []
+
 # List of all site urls that have already been parsed
-visited_sites = []
+known_sites = []
 
 # List of all person ids (pids) that have already been parsed
 scanned_basis_pids = []
@@ -51,7 +64,12 @@ def parse_person(url):
 
     # If the person was already parsed, skip
     if basis_pid in scanned_basis_pids:
-        return filter(lambda person: person.basis_pid == basis_pid, persons)[0]
+        #These two methods somehow don't work, but the big loop does.
+        #res = filter(lambda person: person.basis_pid == basis_pid, persons)
+        #res = [person for person in persons if person.basis_pid == basis_pid]
+        for person in persons:
+            if person.basis_pid == basis_pid:
+                return person
 
     soup = BeautifulSoup(urllib2.urlopen(url).read())
 
@@ -70,12 +88,7 @@ def parse_person(url):
     return p
 
 
-# TODO: Differ between parsing sub-pages and events on a given page
-def parse_event_list(url):
-    pass
-
-
-def parse_site(url):
+def parse_sub_pages(url):
     soup = BeautifulSoup(urllib2.urlopen(url).read())
 
     # Get the depth of the subpage from the root-path
@@ -85,24 +98,34 @@ def parse_site(url):
     else:
         page_depth = 0
 
-    if PARSE_SUBPAGES:
-        # Fetch all sub-pages
-        subpages = soup.find_all('a', {"class": "ueb", "title": re.compile(r'.* öffnen')})
+    # Fetch all sub-pages
+    subpages = soup.find_all('a', {"class": "ueb", "title": re.compile(r'.* öffnen')})
 
-        for subpage in subpages:
-            subpage_url = subpage['href']
+    index = 0
+    for subpage in subpages:
+        subpage_url = subpage['href']
+        print "Processing sub-page", subpage['title'][:-6]
 
-            # Get the depth of the subpage from the root-path
-            sub_page_depth = page_depth_re.search(subpage_url).group(0).count('|')
+        # Get the depth of the subpage from the root-path
+        sub_page_depth = page_depth_re.search(subpage_url).group(0).count('|')
 
-            # If sub-page has the same depth or higher, skip it
-            if not sub_page_depth > page_depth:
-                continue
+        # If sub-page has the same depth or higher, skip it
+        if not sub_page_depth > page_depth:
+            continue
 
-            # If the sub-page wasn't processed yet, process it
-            if not subpage_url in visited_sites:
-                visited_sites.append(subpage_url)
-                parse_site(subpage_url)
+        # If the sub-page wasn't processed yet, process it
+        if not subpage_url in known_sites:
+            known_sites.append(url)
+            if subpage_processing_order == ProcessingOrder.breadth_first:
+                unvisited_sites.append(subpage_url)
+            elif subpage_processing_order == ProcessingOrder.depth_first:
+                unvisited_sites.insert(index, subpage_url)
+                index += 1
+    pass
+
+
+def parse_events(url):
+    soup = BeautifulSoup(urllib2.urlopen(url).read())
 
     # Find parent td
     tmp = soup.find('td', {"class": "maske"})
@@ -212,34 +235,57 @@ def parse_site(url):
 
         session.add_all(e.dates)
         events.append(e)
+        #print_event(e)
+        # Finished parsing dates
 
     session.add_all(events)
     session.commit()
+    # Finished parsing events
+
+
+def parse_page(url=ROOT_PAGE, url_list=[]):
+    unvisited_sites.append(url)
+
+    for item in url_list:
+        unvisited_sites.append(item)
+
+    while len(unvisited_sites) > 0:
+        page = unvisited_sites.pop(0)
+
+        if PARSE_SUBPAGES:
+            parse_sub_pages(page)
+
+        parse_events(page)
+    pass
 
 
 def print_events(events):
     for event in events:
         print "------------------------------------------------------------------------------------------------------"
-        print event.name
-        print event.number
-        print event.semester
-        print event.weekly_hours
-        print event.event_type
-        print "Dozenten:"
-        for person in event.docents:
-            print "\t", person.academic_degree, person, person.first_name, person.last_name
-        if len(event.dates) > 0:
-            print "Dates:"
-            for date in event.dates:
-                print "\t", date.day
-                print "\t\t", date.start_time, date.ct_st, "-", date.end_time, date.repetition
-                print "\t\t", date.start_date, "-", date.end_date
-                print "\t\t", date.info
-                if len(date.teachers) > 0:
-                    print "\t\t", "Teachers:"
-                    for person in date.teachers:
-                        print "\t\t\t", person.academic_degree, person.first_name, person.last_name
+        print_event(event)
     pass
+
+
+def print_event(event):
+    print event.name
+    print event.number
+    print event.semester
+    print event.weekly_hours
+    print event.event_type
+    print "Dozenten:"
+    for person in event.docents:
+        print "\t", person.academic_degree, person, person.first_name, person.last_name
+    if len(event.dates) > 0:
+        print "Dates:"
+        for date in event.dates:
+            print "\t", date.day
+            print "\t\t", date.start_time, date.ct_st, "-", date.end_time, date.repetition
+            print "\t\t", date.start_date, "-", date.end_date
+            print "\t\t", date.info
+            if len(date.teachers) > 0:
+                print "\t\t", "Teachers:"
+                for person in date.teachers:
+                    print "\t\t\t", person.academic_degree, person.first_name, person.last_name
 
 
 main = "https://basis.uni-bonn.de/qisserver/rds;jsessionid=7C21B64E2DD0ADAE6A8A267B99FC718D" \
@@ -248,7 +294,7 @@ main = "https://basis.uni-bonn.de/qisserver/rds;jsessionid=7C21B64E2DD0ADAE6A8A2
 site1 = "https://basis.uni-bonn.de/qisserver/rds" \
         "?state=wtree&search=1&trex=step&root120142=108307|116100|116093|116108&P.vx=lang"
 
-parse_site(site1)
+parse_page()
 
 #person1 = "https://basis.uni-bonn.de/qisserver/rds?state=verpublish&status=init&vmfile=no&moduleCall=webInfo" \
 #          "&publishConfFile=webInfoPerson&publishSubDir=personal&keep=y&purge=y&personal.pid=1323"

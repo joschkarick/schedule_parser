@@ -43,6 +43,7 @@ class Event(Base):
     number = Column(Integer, nullable=True)
     event_type = Column(String(100), nullable=True)
     weekly_hours = Column(Integer, nullable=True)
+    path = Column(String(500), nullable=True)
 
     docents = relationship('Person',
                            secondary=event_person_association,
