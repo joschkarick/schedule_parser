@@ -24,29 +24,31 @@ ROOT_PAGE = "https://basis.uni-bonn.de/qisserver/rds?state=wtree&search=1&trex=s
 strip_re = re.compile(r'([\s]+)\s')
 semester_re = re.compile(r'((WiSe|SoSe) ([0-9]{2,4}(/[0-9]{2})?))\s')
 number_re = re.compile(r'([0-9]{1,9}|\(Keine\sNummer\))\s')
-event_type_re = re.compile(r'([a-zA-ZöÖäÄüÜ]+[a-zA-ZöÖäÄüÜ ]+)\s?')
+event_type_re = re.compile(r'([a-zA-ZöÖäÄüÜ]+[a-zA-ZöÖäÄüÜ \\]+)\s?')
 weekly_hours_re = re.compile(r'([0-9]{1,2}\.[0-9] SWS)\s')
 person_re = re.compile(r'(\s[^;^:]*)\s')
 time_re = re.compile(r'(((([0-9]{1,2})(:([0-9]{1,2}))?) ?(\([cs]\.t\.\))? - (([0-9]{1,2})(:([0-9]{1,2}))?))|-)'
                      r' ?(wöch|woch|Block|täglich|Einzel|nach Absprache|-)')
 date_span_re = re.compile(r'((\d{2})\.(\d{2})\.(\d{4})|-) ?(bis|-) ?((\d{2})\.(\d{2})\.(\d{4})|-)')
 pid_re = re.compile(r'&personal\.pid=([0-9]+)')
+publishid_re = re.compile(r'&publishid=([^&]+)')
 page_depth_re = re.compile(r'&root[^=]*=([^&]*)')
 
 # The order of processing
 subpage_processing_order = ProcessingOrder.depth_first
 
-# List of known but unvisited websites
+# Known but unvisited websites
 unvisited_sites = []
-
-# List of all site urls that have already been parsed
+# Site urls that have already been parsed
 known_sites = []
 
-# List of all person ids (pids) that have already been parsed
+# Person ids (pids) that have already been parsed
 scanned_basis_pids = []
-
-# List of all already parsed person objects
+# Already parsed person objects
 persons = []
+
+# publish_ids from parsed events
+scanned_publish_ids = []
 
 # SQLAlchemy initiation
 engine = initiate_db()
@@ -65,8 +67,8 @@ def parse_person(url):
     # If the person was already parsed, skip
     if basis_pid in scanned_basis_pids:
         #These two methods somehow don't work, but the big loop does.
-        #res = filter(lambda person: person.basis_pid == basis_pid, persons)
-        #res = [person for person in persons if person.basis_pid == basis_pid]
+        #return filter(lambda person: person.basis_pid == basis_pid, persons)[0]
+        #return [person for person in persons if person.basis_pid == basis_pid][0]
         for person in persons:
             if person.basis_pid == basis_pid:
                 return person
@@ -141,7 +143,21 @@ def parse_events(url):
     e = Event()
     for x in xrange(0, len(items), 2):
         e = Event()
-        e.name = items[x].find('h2').find('a').getText()
+        tmp = items[x].find('h2').find('a')
+
+        # Publish ID
+        res = publishid_re.search(tmp['href'])
+        publish_id = res.group(1)
+
+        if publish_id in scanned_publish_ids:
+            # TODO: Safe path to the event
+            return
+
+        scanned_publish_ids.append(publish_id)
+        e.publish_id = publish_id
+
+        # Name of the event
+        e.name = tmp.getText()
 
         # Group all whitespaces
         parent_div = items[x].find('div', {"class": "klein"})
@@ -166,14 +182,18 @@ def parse_events(url):
         result = weekly_hours_re.search(tmp)
         if result:
             e.weekly_hours = result.group(0)[:-1]
-            tmp = tmp[len(e.weekly_hours)+1:]
+            #tmp = tmp[len(e.weekly_hours)+1:]
         else:
             e.weekly_hours = None
 
         # Docents
         d = parent_div.find_all('a', {'title': re.compile(r'Mehr Informationen zu (.*)')})
         for docent in d:
-            p = parse_person(docent['href'])
+            try:
+                p = parse_person(docent['href'])
+            except Exception as e:
+                print "Error while parsing docent:", docent['href']
+                print e
             if p:
                 e.docents.append(p)
 
@@ -215,7 +235,11 @@ def parse_events(url):
             # Persons
             teachers = entries[4].find_all('a', {'title': re.compile(r'Mehr Informationen zu (.*)')})
             for teacher in teachers:
-                t = parse_person(teacher['href'])
+                try:
+                    t = parse_person(teacher['href'])
+                except Exception as e:
+                    print "Error while parsing teacher:", teacher['href']
+                    print e
                 if t:
                     d.teachers.append(t)
 
@@ -253,9 +277,17 @@ def parse_page(url=ROOT_PAGE, url_list=[]):
         page = unvisited_sites.pop(0)
 
         if PARSE_SUBPAGES:
-            parse_sub_pages(page)
+            try:
+                parse_sub_pages(page)
+            except Exception as e:
+                print "Error while parsing sub-pages:", page
+                print e
 
-        parse_events(page)
+        try:
+            parse_events(page)
+        except Exception as e:
+            print "Error while parsing event page:", page
+            print e
     pass
 
 

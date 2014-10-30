@@ -38,6 +38,7 @@ class Event(Base):
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
+    publish_id = Column(Integer, nullable=False)
     name = Column(String(250), nullable=False)
     semester = Column(String(10), nullable=True)
     number = Column(Integer, nullable=True)
