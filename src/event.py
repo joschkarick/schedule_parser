@@ -59,13 +59,21 @@ class Event(Base):
     pass
 
 
+class Node(Base):
+    __tablename__ = 'node_page'
+
+    id = Column(Integer, primary_key=True)
+
+    pass
+
+
 class Date(Base):
     __tablename__ = 'date'
 
     id = Column(Integer, primary_key=True)
     day = Column(Day.db_type(), nullable=True)
-    start_time = Column(Time, nullable=False)
-    end_time = Column(Time, nullable=False)
+    start_time = Column(Time, nullable=True)
+    end_time = Column(Time, nullable=True)
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
     ct_st = Column(String(10), nullable=True)

@@ -9,6 +9,7 @@ import re
 import urllib2
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import sessionmaker
+import traceback
 
 
 class ProcessingOrder(DeclEnum):
@@ -24,7 +25,8 @@ ROOT_PAGE = "https://basis.uni-bonn.de/qisserver/rds?state=wtree&search=1&trex=s
 strip_re = re.compile(r'([\s]+)\s')
 semester_re = re.compile(r'((WiSe|SoSe) ([0-9]{2,4}(/[0-9]{2})?))\s')
 number_re = re.compile(r'([0-9]{1,9}|\(Keine\sNummer\))\s')
-event_type_re = re.compile(r'([a-zA-ZöÖäÄüÜ]+[a-zA-ZöÖäÄüÜ \\]+)\s?')
+#event_type_re = re.compile(r'([a-zA-ZöÖäÄüÜ]+[a-zA-ZöÖäÄüÜ \\/]*[a-zA-ZöÖäÄüÜ]+)(\s)?')
+event_type_re_2 = re.compile(r'^((?!([A-Za-zöÖäÄüÜ]+ :)|([0-9]{1,2}\.[0-9] SWS)).)*')
 weekly_hours_re = re.compile(r'([0-9]{1,2}\.[0-9] SWS)\s')
 person_re = re.compile(r'(\s[^;^:]*)\s')
 time_re = re.compile(r'(((([0-9]{1,2})(:([0-9]{1,2}))?) ?(\([cs]\.t\.\))? - (([0-9]{1,2})(:([0-9]{1,2}))?))|-)'
@@ -77,11 +79,20 @@ def parse_person(url):
 
     p = Person()
     p.basis_pid = basis_pid
-    p.last_name = strip_re.sub(' ', soup.find('td', {'headers': 'basic_1'}).getText()).strip()
-    p.sex = strip_re.sub(' ', soup.find('td', {'headers': 'basic_2'}).getText()).strip()
-    p.first_name = strip_re.sub(' ', soup.find('td', {'headers': 'basic_3'}).getText()).strip()
-    p.academic_degree = strip_re.sub(' ', soup.find('td', {'headers': 'basic_9'}).getText()).strip()
-    p.status = strip_re.sub(' ', soup.find('td', {'headers': 'basic_10'}).getText()).strip()
+    tmp = soup.find('td', {'headers': 'basic_1'})
+    p.last_name = strip_re.sub(' ', tmp.getText()).strip() if tmp else ""
+
+    tmp = soup.find('td', {'headers': 'basic_2'})
+    p.sex = strip_re.sub(' ', tmp.getText()).strip() if tmp else ""
+
+    tmp = soup.find('td', {'headers': 'basic_3'})
+    p.first_name = strip_re.sub(' ', tmp.getText()).strip() if tmp else ""
+
+    tmp = soup.find('td', {'headers': 'basic_9'})
+    p.academic_degree = strip_re.sub(' ', tmp.getText()).strip() if tmp else ""
+
+    tmp = soup.find('td', {'headers': 'basic_10'})
+    p.status = strip_re.sub(' ', tmp.getText()).strip() if tmp else ""
 
     session.add(p)
     scanned_basis_pids.append(basis_pid)
@@ -106,7 +117,6 @@ def parse_sub_pages(url):
     index = 0
     for subpage in subpages:
         subpage_url = subpage['href']
-        print "Processing sub-page", subpage['title'][:-6]
 
         # Get the depth of the subpage from the root-path
         sub_page_depth = page_depth_re.search(subpage_url).group(0).count('|')
@@ -175,8 +185,9 @@ def parse_events(url):
         tmp = tmp[len(e.number)+1:]
 
         # Course type
-        e.event_type = event_type_re.search(tmp).group(0)[:-1]
-        tmp = tmp[len(e.event_type)+1:]
+        result = event_type_re_2.search(tmp)
+        e.event_type = result.group(0).strip()
+        tmp = tmp[len(result.group(0)):]
 
         # Weekly effort in hours
         result = weekly_hours_re.search(tmp)
@@ -191,11 +202,10 @@ def parse_events(url):
         for docent in d:
             try:
                 p = parse_person(docent['href'])
-            except Exception as e:
-                print "Error while parsing docent:", docent['href']
-                print e
-            if p:
                 e.docents.append(p)
+            except Exception:
+                print "Error while parsing docent:", docent['href']
+                traceback.print_exc()
 
         # Parse each date
         date_rows = items[x+1].find_all('tr')
@@ -208,7 +218,7 @@ def parse_events(url):
 
             d = Date()
 
-            # Parse each cell
+            # Parse each cell of the table
             # Day of the date
             tmp = strip_re.sub(' ', entries[1].getText().replace(u'\xa0', ' '))
             d.day = Day.from_string(tmp.strip())
@@ -216,6 +226,10 @@ def parse_events(url):
             # Time
             tmp = strip_re.sub(' ', entries[2].getText().replace(u'\xa0', ' '))
             tmp = time_re.search(tmp.strip())
+
+            # If the time is empty, the date is irrelevant
+            if not tmp:
+                continue
 
             hour = int(tmp.group(4)) if tmp.group(4) else 0
             minute = int(tmp.group(6)) if tmp.group(6) else 0
@@ -237,11 +251,10 @@ def parse_events(url):
             for teacher in teachers:
                 try:
                     t = parse_person(teacher['href'])
-                except Exception as e:
-                    print "Error while parsing teacher:", teacher['href']
-                    print e
-                if t:
                     d.teachers.append(t)
+                except Exception:
+                    print "Error while parsing teacher:", teacher['href']
+                    traceback.print_exc()
 
             # Comments/Info
             tmp = strip_re.sub(' ', entries[5].getText().replace(u'\xa0', ' '))
@@ -258,11 +271,12 @@ def parse_events(url):
             e.dates.append(d)
 
         session.add_all(e.dates)
+        session.add(e)
         events.append(e)
         #print_event(e)
         # Finished parsing dates
 
-    session.add_all(events)
+    #session.add_all(events)
     session.commit()
     # Finished parsing events
 
@@ -279,15 +293,15 @@ def parse_page(url=ROOT_PAGE, url_list=[]):
         if PARSE_SUBPAGES:
             try:
                 parse_sub_pages(page)
-            except Exception as e:
+            except Exception:
                 print "Error while parsing sub-pages:", page
-                print e
+                traceback.print_exc()
 
         try:
             parse_events(page)
-        except Exception as e:
+        except Exception:
             print "Error while parsing event page:", page
-            print e
+            traceback.print_exc()
     pass
 
 
@@ -323,9 +337,10 @@ def print_event(event):
 main = "https://basis.uni-bonn.de/qisserver/rds;jsessionid=7C21B64E2DD0ADAE6A8A267B99FC718D" \
        "?state=wtree&search=1&trex=step&root120142=108307&P.vx=lang"
 
-site1 = "https://basis.uni-bonn.de/qisserver/rds" \
-        "?state=wtree&search=1&trex=step&root120142=108307|116100|116093|116108&P.vx=lang"
+site1 = "https://basis.uni-bonn.de/qisserver/rds;jsessionid=6E2FEDBC6FFC67BF58F7CA3A3582CBE7" \
+        "?state=wtree&search=1&trex=step&root120142=108307|117656|117654&P.vx=lang"
 
+#PARSE_SUBPAGES = False
 parse_page()
 
 #person1 = "https://basis.uni-bonn.de/qisserver/rds?state=verpublish&status=init&vmfile=no&moduleCall=webInfo" \
